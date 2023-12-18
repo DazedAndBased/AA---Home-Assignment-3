@@ -1,0 +1,370 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from sklearn import tree
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.metrics import f1_score, confusion_matrix,matthews_corrcoef, precision_score, recall_score
+from sklearn.metrics import explained_variance_score, mean_squared_error
+from scipy.stats import pearsonr
+
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression, LogisticRegression, Lasso, Ridge
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.svm import SVR
+from sklearn.neural_network import MLPRegressor
+
+## 1. calculate_elapsed_time
+
+from time import time
+def calculate_elasped_time(t):
+    
+    """
+        Função que calcula elapsed time, com base num t previamente inicializado (antes do modelo)     
+        Invocar a função após o modelo ter corrido.
+    """
+    elapsed_time = time() - t;
+    if elapsed_time > 60:
+        minutes = int(elapsed_time // 60)
+        seconds = elapsed_time % 60
+        print(f"Este algoritmo demorou: {minutes} min {seconds:.2f} s \n")
+    else:
+        print(f"Este algoritmo demorou: {elapsed_time:.2f} s\n")
+
+## 2 - Importar dataset + processamento (standart scaler)
+
+import pickle
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.metrics import explained_variance_score, mean_squared_error
+from sklearn.preprocessing import StandardScaler, PowerTransformer
+
+# Carregando os dados
+X_train1, X_ivs, y_train1, col_names = pickle.load(open("drd2_data.pickle", "rb"))
+
+# Dividindo os dados em conjuntos de treino e teste
+X_train, X_test, y_train, y_test = train_test_split(X_train1, y_train1, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+## 3 - Parameter tuning (Grid Search Cross Validation)
+
+Função que permite correr entre vários modelos, usando Cross Validation.
+
+from sklearn.model_selection import GridSearchCV
+
+def calculate_metrics(y_true, predictions):
+    rve = explained_variance_score(y_true, predictions)
+    rmse = np.sqrt(mean_squared_error(y_true, predictions))
+    correlation, _ = pearsonr(y_true, predictions)
+    return rve, rmse, correlation
+
+def perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, model_name, param_grid):
+    model_dict = {
+        'LinearRegression': LinearRegression(),
+        'RandomForestRegressor': RandomForestRegressor(),
+        'DecisionTreeRegressor': DecisionTreeRegressor(),
+        'SVR': SVR(),
+        'Ridge': Ridge(),
+        'Lasso': Lasso(),
+        'KNN': KNeighborsRegressor(),
+        'NeuralNetwork': MLPRegressor(),
+        'GradientBoostingRegressor': GradientBoostingRegressor()
+    }
+
+    if model_name not in model_dict:
+        raise ValueError("Model name not recognized")
+
+    model = model_dict[model_name]
+
+    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, scoring='neg_mean_squared_error', cv=5)
+    grid_search.fit(X_train_scaled, y_train)
+
+    best_model = grid_search.best_estimator_
+    best_model.fit(X_train_scaled, y_train)
+
+    preds = best_model.predict(X_test_scaled)
+    rve, rmse, correlation = calculate_metrics(y_test, preds)
+    
+    print(f"Model: {model_name}")
+    print(f"Best Parameters: {grid_search.best_params_}")
+    print(f"RVE: {rve:.3f}")
+    print(f"RMSE: {rmse:.3f}")
+    print(f"Correlation: {correlation:.3f}")
+    
+    return rve, rmse, correlation, best_model
+
+# Função para plotar a linha de regressão para um modelo específico
+def plot_regression_line(model_name, best_model, X_test_scaled, y_test):
+    preds = best_model.predict(X_test_scaled)
+    
+    plt.figure(figsize=(8, 6))
+    plt.scatter(preds, y_test)
+    plt.title(f"Regression Line for {model_name}")
+    plt.ylabel("True Values")
+    plt.xlabel("Predicted Values")
+    plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'k--', lw=2)  # Plotting the diagonal line
+    plt.grid()
+    plt.show()
+
+param_grid_lr = {
+    'fit_intercept': [True, False]
+}
+
+param_grid_rf = {
+    'n_estimators': [50],
+    'max_depth': [None, 5, 10]
+}
+
+param_grid_dt = {
+    'max_depth': [None, 5, 10],
+    'min_samples_split': [2, 5, 10]
+}
+
+param_grid_svr = {
+   # 'kernel': ['linear', 'rbf'],
+    'C': [0.1, 1, 10]
+}
+
+param_grid_ridge = {
+    'alpha': [0.1, 1, 10]
+}
+
+param_grid_lasso = {
+    'alpha': [0.01, 0.1, 1]
+}
+
+param_grid_knn = {
+    'n_neighbors': [3, 5, 7],
+    'weights': ['uniform', 'distance']
+}
+param_grid_NN = {
+    'hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50, 25)],  # Diferentes tamanhos para as camadas ocultas
+    'alpha': [0.0001, 0.001, 0.01],  # Parâmetro de regularização
+}
+param_grid_gb = {
+    'n_estimators': [50],  # Número de árvores no boosting
+   # 'learning_rate': [0.01, 0.1, 0.5],  # Taxa de aprendizado (step size shrinkage)
+    'max_depth': [None, 5, 10],  # Profundidade máxima das árvores base
+  #  'min_samples_split': [2, 5, 10],  # Número mínimo de amostras necessárias para dividir um nó interno
+  #  'min_samples_leaf': [1, 2, 4]  # Número mínimo de amostras necessárias em uma folha
+    # 'subsample': [0.8, 1.0]  # Fração de amostras usadas para ajustar cada árvore
+}
+
+t1 = time()
+
+# Linear Regression
+rve_lr, rmse_lr, correlation_lr, best_model_lr = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'LinearRegression', param_grid_lr)
+plot_regression_line('Linear Regression', best_model_lr, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# RandomForestRegressor
+rve_rf, rmse_rf, correlation_rf, best_model_rf = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'RandomForestRegressor', param_grid_rf)
+
+calculate_elasped_time(t1)
+
+plot_regression_line('RandomForestRegressor', best_model_rf, X_test_scaled, y_test)
+
+t1 = time()
+
+# DecisionTreeRegressor
+rve_dt, rmse_dt, correlation_dt, best_model_dt = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'DecisionTreeRegressor', param_grid_dt)
+plot_regression_line('DecisionTreeRegressor', best_model_dt, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# SVR
+rve_svr, rmse_svr, correlation_svr, best_model_svr = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'SVR', param_grid_svr)
+plot_regression_line('SVR', best_model_svr, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Ridge
+rve_ridge, rmse_ridge, correlation_ridge, best_model_ridge = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'Ridge', param_grid_ridge)
+plot_regression_line('Ridge', best_model_ridge, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Lasso
+rve_lasso, rmse_lasso, correlation_lasso, best_model_lasso = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'Lasso', param_grid_lasso)
+plot_regression_line('Lasso', best_model_ridge, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# KNN
+rve_knn, rmse_knn, correlation_knn, best_model_knn = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'KNN', param_grid_knn)
+plot_regression_line('KNN', best_model_knn, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Neural Network
+rve_NN, rmse_NN, correlation_NN, best_model_NN = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'NeuralNetwork', param_grid_NN)
+plot_regression_line('NeuralNetwork', best_model_NN, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# GradientBoostingRegressor
+rve_gb, rmse_gb, correlation_gb, best_model_gb = perform_kfold_single_model(X_train_scaled, y_train, X_test_scaled, y_test, 'GradientBoostingRegressor', param_grid_gb)
+plot_regression_line('GradientBoostingRegressor', best_model_gb, X_test_scaled, y_test)
+
+calculate_elasped_time(t1)
+
+## 4 - Principal Component Analysis
+
+Função que permite correr entre vários modelos, usando PCA e Cross Validation.
+
+from sklearn.decomposition import PCA
+
+n_components = 0.80
+def apply_pca(X_train_scaled, X_test_scaled, n_components):
+    
+    pca = PCA(n_components=n_components)
+    X_train_pca = pca.fit_transform(X_train_scaled)
+    X_test_pca = pca.transform(X_test_scaled)
+    
+    return X_train_pca, X_test_pca
+
+# Modifique a função perform_kfold_single_model para incorporar PCA
+def perform_kfold_single_model_with_pca(X_train, y_train, X_test, y_test, model_name, param_grid, n_components):
+    X_train_pca, X_test_pca = apply_pca(X_train, X_test, n_components)
+    
+    model_dict = {
+        'LinearRegression': LinearRegression(),
+        'RandomForestRegressor': RandomForestRegressor(),
+        'DecisionTreeRegressor': DecisionTreeRegressor(),
+        'SVR': SVR(),
+        'Ridge': Ridge(),
+        'Lasso': Lasso(),
+        'KNN': KNeighborsRegressor(),
+        'NeuralNetwork': MLPRegressor(),
+        'GradientBoostingRegressor': GradientBoostingRegressor()
+    }
+
+    if model_name not in model_dict:
+        raise ValueError("Model name not recognized")
+
+    model = model_dict[model_name]
+
+    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, scoring='neg_mean_squared_error', cv=5)
+    grid_search.fit(X_train_pca, y_train)
+
+    best_model = grid_search.best_estimator_
+    best_model.fit(X_train_pca, y_train)
+
+    preds = best_model.predict(X_test_pca)
+    rve, rmse, correlation = calculate_metrics(y_test, preds)
+    
+    print(f"Model: {model_name}")
+    print(f"Best Parameters: {grid_search.best_params_}")
+    print(f"RVE: {rve:.3f}")
+    print(f"RMSE: {rmse:.3f}")
+    print(f"Correlation: {correlation:.3f}")
+    
+    return rve, rmse, correlation, best_model, X_test_pca
+
+t1 = time()
+
+# Linear Regression
+rve_lr, rmse_lr, correlation_lr, best_model_lr, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'LinearRegression', param_grid_lr, n_components=n_components)
+plot_regression_line('LinearRegression', best_model_lr, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# RandomForestRegressor
+rve_rf, rmse_rf, correlation_rf, best_model_rf, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'RandomForestRegressor', param_grid_rf, n_components=n_components)
+plot_regression_line('RandomForestRegressor', best_model_rf, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# DecisionTreeRegressor
+rve_dt, rmse_dt, correlation_dt, best_model_dt, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'DecisionTreeRegressor', param_grid_dt, n_components=n_components)
+plot_regression_line('DecisionTreeRegressor', best_model_dt, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# SVR
+rve_svr, rmse_svr, correlation_svr, best_model_svr, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'SVR', param_grid_svr, n_components=n_components)
+plot_regression_line('SVR', best_model_svr, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Ridge
+rve_ridge, rmse_ridge, correlation_ridge, best_model_ridge, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'Ridge', param_grid_ridge, n_components=n_components)
+plot_regression_line('Ridge', best_model_ridge, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Lasso
+rve_lasso, rmse_lasso, correlation_lasso, best_model_lasso, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'Lasso', param_grid_lasso, n_components=n_components)
+plot_regression_line('Lasso', best_model_lasso, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# KNN
+rve_knn, rmse_knn, correlation_knn, best_model_knn, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'KNN', param_grid_knn, n_components=n_components)
+plot_regression_line('KNN', best_model_knn, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Neural Network
+rve_NN, rmse_NN, correlation_NN, best_model_NN, X_test_pca = perform_kfold_single_model_with_pca(X_train_scaled, y_train, X_test_scaled, y_test, 'NeuralNetwork', param_grid_NN, n_components=n_components)
+plot_regression_line('NeuralNetwork', best_model_NN, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+t1 = time()
+
+# Gradient Boosting Regressor
+rve_gb, rmse_gb, correlation_gb, best_model_gb, X_test_pca = perform_kfold_single_model_with_pca(X_train, y_train, X_test, y_test, 'GradientBoostingRegressor', param_grid_gb, n_components=n_components)
+plot_regression_line('GradientBoostingRegressor', best_model_gb, X_test_pca, y_test)
+
+calculate_elasped_time(t1)
+
+## 5 - Previsão de y_IVS com o melhor modelo
+
+scaler = StandardScaler()
+X_train_scaled1 = scaler.fit_transform(X_train1)
+X_ivs_scaled = scaler.transform(X_ivs)
+X_train_pca, X_ivs_pca = apply_pca(X_train_scaled1, X_ivs_scaled, n_components)
+
+# fit com todo o Training Set
+best_model_svr = SVR(C = 1)
+best_model_svr.fit(X_train_pca,y_train1)
+IVS_preds = best_model_svr.predict(X_ivs_pca)
+
+# Criar ficheiro .txt com previsões y_IVS
+with open('predicted_IVS.txt', 'w') as file:
+    for prediction in IVS_preds:
+        file.write(f"{prediction}\n")
+
+print("Predictions saved to predicted_IVS.txt")
